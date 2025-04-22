@@ -616,7 +616,7 @@ printf("i2s_channel_init_std_mode 2:%d\n", err);
           }
         }
 
-        int output_num = 2;
+        int output_num = current_rec->is_stereo ? 2 : 1;
 
         if (in_stereo != current_rec->is_stereo)
         {

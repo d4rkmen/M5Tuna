@@ -247,7 +247,7 @@ void pitch_detector_task(void* pvParameter)
                 // Send in each value into the pitch detector
                 if (pd(s) == true)
                 { // calculated a frequency
-                    auto f = pd.get_frequency() * 2;
+                    auto f = pd.get_frequency();
                     // 1EU Filtering
                     TimeStamp time_seconds = (double)esp_timer_get_time() / 1000000;
                     oneEUFilter.setFrequency(f);
