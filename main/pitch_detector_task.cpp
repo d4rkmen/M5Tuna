@@ -64,10 +64,15 @@ OneEuroFilter oneEUFilter(EU_FILTER_ESTIMATED_FREQ, EU_FILTER_MIN_CUTOFF, EU_FIL
 OneEuroFilter oneEUFilter2(EU_FILTER_ESTIMATED_FREQ, EU_FILTER_MIN_CUTOFF_2, EU_FILTER_BETA_2, EU_FILTER_DERIVATIVE_CUTOFF_2);
 MovingAverage movingAverage(5);
 MedianFilter medianMovingFilter(3, true);
-// MedianFilter medianFilter(5, false);
+
+#define FREQ_MIN 27.5f
+#define FREQ_MAX 4200.0f
 
 extern QueueHandle_t frequencyQueue;
 static TaskHandle_t s_task_handle;
+
+volatile int8_t g_waveform[WAVEFORM_SAMPLES];
+volatile bool g_waveform_active = false;
 
 #define MIC_REC_BLOCKS 3
 static int16_t adc_buffer[MIC_REC_BLOCKS][TUNER_FRAME_SIZE];
@@ -217,9 +222,11 @@ void pitch_detector_task(void* pvParameter)
             float range = maxVal - minVal;
             if (range < TUNER_READING_DIFF_MINIMUM)
             {
+                g_waveform_active = false;
                 xQueueOverwrite(frequencyQueue, &noFreq);
                 smoother.reset();
                 movingAverage.reset();
+                medianMovingFilter.reset();
                 pd.reset();
 
                 lastSeenNote = NOTE_NONE;
@@ -230,6 +237,20 @@ void pitch_detector_task(void* pvParameter)
             }
 
             float midVal = std::max(abs(minVal), abs(maxVal));
+
+            // Downsample audio frame into waveform display buffer
+            for (int w = 0; w < WAVEFORM_SAMPLES; w++)
+            {
+                int src = w * TUNER_FRAME_SIZE / WAVEFORM_SAMPLES;
+                float normalized = frame[src] / midVal;
+                int8_t val = (int8_t)(normalized * WAVEFORM_HEIGHT);
+                if (val > WAVEFORM_HEIGHT)
+                    val = WAVEFORM_HEIGHT;
+                if (val < -WAVEFORM_HEIGHT)
+                    val = -WAVEFORM_HEIGHT;
+                g_waveform[w] = val;
+            }
+            g_waveform_active = true;
             for (auto i = 0; i < TUNER_FRAME_SIZE; i++)
             {
                 float normalizedValue = in[i] / midVal;
@@ -240,6 +261,15 @@ void pitch_detector_task(void* pvParameter)
                 if (pd(s) == true)
                 {
                     auto f = pd.get_frequency();
+
+                    if (f < FREQ_MIN || f > FREQ_MAX)
+                        continue;
+
+                    // Median filter rejects outlier spikes
+                    f = medianMovingFilter.addValue(f);
+                    if (f < 0.0f)
+                        continue;
+
                     TimeStamp time_seconds = (double)esp_timer_get_time() / 1000000;
                     oneEUFilter.setFrequency(f);
                     f = (float)oneEUFilter.filter((double)f, (TimeStamp)time_seconds);
@@ -252,8 +282,6 @@ void pitch_detector_task(void* pvParameter)
 
                     if (get_frequency_info(f, &freqInfo) == ESP_OK)
                     {
-                        ESP_LOGI(TAG, "freq: %.2f, range: %.0f", freqInfo.frequency, range);
-
                         if (lastSeenNote == freqInfo.targetNote)
                         {
                             sameNoteSeenCount++;
@@ -266,7 +294,7 @@ void pitch_detector_task(void* pvParameter)
 
                         if (sameNoteSeenCount > 1)
                         {
-                            ESP_LOGI(TAG,
+                            ESP_LOGD(TAG,
                                      "Frequency: %.2f, Note: %d, Octave: %d, Cents: %.2f",
                                      freqInfo.frequency,
                                      freqInfo.targetNote,
