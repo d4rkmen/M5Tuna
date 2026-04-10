@@ -285,25 +285,24 @@ void tuner_gui_task(void* pvParameter)
         // Update UI
         tunerUI->update_freq(currentFreq, targetNote, targetOctave, targetFreq);
 
-        // LED feedback: green when pitch is in tune, off when signal lost
-        if (currentFreq > 0 && targetFreq > 0)
-        {
-            float cents = 1200.0f * std::log2(currentFreq / targetFreq);
-            if (std::abs(cents) <= 10.0f)
-                hal->led()->set_color(HAL::Color(0, 32, 0));
-            else
-                hal->led()->off();
-        }
-        else
-        {
-            hal->led()->off();
-        }
-
         // Render and update canvas if needed
         if (tunerUI->render())
         {
             hal->canvas_update();
         }
+
+        // LED feedback driven by stabilized in-tune state
+        static bool led_on = false;
+        bool want_led = tunerUI->isInTune();
+        if (want_led != led_on)
+        {
+            if (want_led)
+                hal->led()->set_color(HAL::Color(0, 32, 0));
+            else
+                hal->led()->off();
+            led_on = want_led;
+        }
+
         delay(5);
     }
 }
