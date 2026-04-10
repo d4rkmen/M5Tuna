@@ -10,10 +10,6 @@
  */
 #include <stdio.h>
 #include "hal/hal_cardputer.h"
-#include "app/utils/common_define.h"
-#ifdef HAVE_SETTINGS
-#include "settings/settings.h"
-#endif
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -21,9 +17,11 @@
 #include "freertos/queue.h"
 
 #include "defines.h"
+#include "common_define.h"
 #include "pitch_detector_task.h"
 #include "app/ui.h"
 #include <string>
+#include <cmath>
 
 static const char* TAG = "M5Tuna";
 
@@ -39,13 +37,7 @@ TaskHandle_t guiTaskHandle;
 QueueHandle_t frequencyQueue;
 
 using namespace HAL;
-#ifdef HAVE_SETTINGS
-using namespace SETTINGS;
-#endif
 
-#ifdef HAVE_SETTINGS
-Settings settings;
-#endif
 HalCardputer hal;
 
 // Define string notes for each instrument (using note enum values)
@@ -292,6 +284,20 @@ void tuner_gui_task(void* pvParameter)
 
         // Update UI
         tunerUI->update_freq(currentFreq, targetNote, targetOctave, targetFreq);
+
+        // LED feedback: green when pitch is in tune, off when signal lost
+        if (currentFreq > 0 && targetFreq > 0)
+        {
+            float cents = 1200.0f * std::log2(currentFreq / targetFreq);
+            if (std::abs(cents) <= 10.0f)
+                hal->led()->set_color(HAL::Color(0, 32, 0));
+            else
+                hal->led()->off();
+        }
+        else
+        {
+            hal->led()->off();
+        }
 
         // Render and update canvas if needed
         if (tunerUI->render())
