@@ -21,8 +21,8 @@ static uint32_t hint_timeout = HINT_ANIMATION_DELAY;
 
 TunerUI::TunerUI(HAL::Hal* hal)
     : _hal(hal), _canvas(_hal->canvas()), _current_freq(0.0f), _target_note(""), _target_octave(-1), _target_freq(0.0f),
-      _pitch_offset_x(0.0f), _needs_update(true), _mode(MODE_GUITAR), _max_strings(6), _cur_string(5),
-      _strings_rendered_time(0), _signal_lost_time(0)
+      _display_offset_x(0.0f), _target_offset_x(0.0f), _in_tune(false), _in_tune_since(0), _needs_update(true),
+      _mode(MODE_GUITAR), _max_strings(6), _cur_string(5), _strings_rendered_time(0), _signal_lost_time(0)
 {
     init();
 }
@@ -59,20 +59,13 @@ void TunerUI::_calculate_pitch_offset()
 {
     if (_target_freq <= 0 || _current_freq <= 0)
     {
-        _pitch_offset_x = 0; // No valid frequencies, center the pitch circle
+        _target_offset_x = 0;
         return;
     }
 
-    // Calculate difference in cents
-    // Cents = 1200 * log2(f2 / f1)
     float cents_difference = CENTS_PER_SEMITONE * 12.0f * std::log2(_current_freq / _target_freq);
-
-    // Clamp the cents difference to the maximum deviation range
     cents_difference = std::max(-MAX_DEVIATION_CENTS, std::min(MAX_DEVIATION_CENTS, cents_difference));
-
-    // Map cents difference to pixel offset
-    // Linear mapping: offset = (cents / max_cents) * max_pixels
-    _pitch_offset_x = (cents_difference / MAX_DEVIATION_CENTS) * MAX_PITCH_DEVIATION_PX;
+    _target_offset_x = (cents_difference / MAX_DEVIATION_CENTS) * MAX_PITCH_DEVIATION_PX;
 }
 
 void TunerUI::update_freq(float current_freq, const std::string& target_note, int target_octave, float target_freq)
@@ -134,55 +127,72 @@ bool TunerUI::render()
         _needs_update = true;
     }
 
-    if (!_needs_update)
+    // Smooth interpolation runs every frame regardless of _needs_update
+    float prev_display = _display_offset_x;
+    if (_current_freq > 0)
+        _display_offset_x += (_target_offset_x - _display_offset_x) * SMOOTH_FACTOR;
+    else
+        _display_offset_x += (0.0f - _display_offset_x) * SMOOTH_FACTOR;
+
+    if (std::abs(_display_offset_x - prev_display) > 0.3f)
+        _needs_update = true;
+
+    // In-tune stability with hysteresis
+    float abs_offset = std::abs(_display_offset_x);
+    float threshold = _in_tune ? OUT_OF_TUNE_PX : IN_TUNE_PX;
+    if (_current_freq > 0 && abs_offset <= threshold)
     {
-        return false; // Nothing changed, no need to re-render
+        if (_in_tune_since == 0)
+            _in_tune_since = current_time;
+        if ((current_time - _in_tune_since) >= IN_TUNE_STABLE_MS)
+            _in_tune = true;
+    }
+    else
+    {
+        _in_tune = false;
+        _in_tune_since = 0;
     }
 
-    // Clear the canvas (or relevant area if optimizing)
+    if (!_needs_update)
+    {
+        return false;
+    }
+
     _canvas->fillScreen(BACKGROUND_COLOR);
 
-    // Calculate center positions
     int center_x = _canvas->width() / 2;
     int center_y = _canvas->height() / 2;
 
-    // 1. Draw the filled orange target note circle
-    // if pitch is in the range of 10 cents, draw the circle in green
     _canvas->fillCircle(center_x, center_y, NOTE_CIRCLE_RADIUS, TARGET_COLOR);
 
-    // 3. Draw the empty pitch circle at the calculated offset
     if (_current_freq > 0)
     {
-        int pitch_circle_center_x = center_x + static_cast<int>(_pitch_offset_x);
-        int color = SUCCESS_COLOR;
-        int r = PITCH_CIRCLE_RADIUS;
-        // draw arrows (triangles) pointed to the pitch circle
-        if (abs(_pitch_offset_x) > 10)
+        int pitch_circle_center_x = center_x + static_cast<int>(_display_offset_x);
+
+        if (_in_tune)
         {
-            color = TUNING_COLOR;
-            r = PITCH_CIRCLE_RADIUS - 2;
-            if (_pitch_offset_x > 0)
-            {
-                _canvas->fillTriangle(pitch_circle_center_x + PITCH_CIRCLE_RADIUS + 20,
-                                      center_y,
-                                      pitch_circle_center_x + PITCH_CIRCLE_RADIUS + 20 + 10,
-                                      center_y - 10,
-                                      pitch_circle_center_x + PITCH_CIRCLE_RADIUS + 20 + 10,
-                                      center_y + 10,
-                                      TFT_DARKGRAY);
-            }
-            else
-            {
-                _canvas->fillTriangle(pitch_circle_center_x - PITCH_CIRCLE_RADIUS - 20,
-                                      center_y,
-                                      pitch_circle_center_x - PITCH_CIRCLE_RADIUS - 20 - 10,
-                                      center_y - 10,
-                                      pitch_circle_center_x - PITCH_CIRCLE_RADIUS - 20 - 10,
-                                      center_y + 10,
-                                      TFT_DARKGRAY);
-            }
+            _canvas->fillCircle(pitch_circle_center_x, center_y, PITCH_CIRCLE_RADIUS, SUCCESS_COLOR);
+            _canvas->drawCircle(pitch_circle_center_x, center_y, NOTE_CIRCLE_RADIUS + 3, TFT_WHITE);
+            _canvas->drawCircle(center_x, center_y, NOTE_CIRCLE_RADIUS + 4, TFT_WHITE);
         }
-        _canvas->fillCircle(pitch_circle_center_x, center_y, r, color);
+        else
+        {
+            // Red (far) -> yellow (close) color gradient
+            float t = 1.0f - std::min(abs_offset / (float)MAX_PITCH_DEVIATION_PX, 1.0f);
+            uint16_t color = _canvas->color565(255, (uint8_t)(t * 255), 0);
+
+            int arrow_dir = (_display_offset_x > 0) ? 1 : -1;
+            int arrow_x = pitch_circle_center_x + arrow_dir * (PITCH_CIRCLE_RADIUS + 20);
+            _canvas->fillTriangle(arrow_x,
+                                  center_y,
+                                  arrow_x + arrow_dir * 10,
+                                  center_y - 10,
+                                  arrow_x + arrow_dir * 10,
+                                  center_y + 10,
+                                  TFT_DARKGRAY);
+
+            _canvas->fillCircle(pitch_circle_center_x, center_y, PITCH_CIRCLE_RADIUS - 2, color);
+        }
     }
 
     // 2. Draw the note name and octave number inside the target circle

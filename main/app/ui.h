@@ -7,16 +7,21 @@
 // Placeholder defines - adjust as needed
 #define NOTE_CIRCLE_RADIUS 60
 #define PITCH_CIRCLE_RADIUS 60
-#define MAX_PITCH_DEVIATION_PX 120 // Max pixels the pitch circle can move left/right
+#define MAX_PITCH_DEVIATION_PX 120
 #define NOTE_TEXT_FONT FONT_16
 #define OCTAVE_TEXT_FONT FONT_16
 #define TARGET_COLOR TFT_ORANGE
-#define TUNING_COLOR TFT_GREENYELLOW
 #define SUCCESS_COLOR TFT_GREEN
 #define SIGNAL_LOST_HOLD_TIME 1000
 #define BACKGROUND_COLOR TFT_BLACK
 #define NOTE_TEXT_COLOR TFT_BLACK
 #define PITCH_CIRCLE_COLOR TFT_CYAN
+
+#define SMOOTH_FACTOR 0.18f
+#define IN_TUNE_CENTS 5.0f
+#define IN_TUNE_PX (IN_TUNE_CENTS / 50.0f * MAX_PITCH_DEVIATION_PX)
+#define OUT_OF_TUNE_PX (IN_TUNE_PX * 2.0f)
+#define IN_TUNE_STABLE_MS 300
 
 class TunerUI
 {
@@ -29,7 +34,11 @@ private:
     std::string _target_note;
     int _target_octave;
     float _target_freq;
-    float _pitch_offset_x; // Calculated offset for the pitch circle
+    float _display_offset_x;
+    float _target_offset_x;
+
+    bool _in_tune;
+    uint32_t _in_tune_since;
 
     bool _needs_update;
     TunerMode _mode;
@@ -49,6 +58,7 @@ public:
     bool render(); // Returns true if the canvas was updated
     void update_mode(TunerMode mode);
     void update_string(uint8_t string);
+    bool isInTune() const { return _in_tune; }
     void animateHintText(const char* text);
     void animateHintReset();
 };
