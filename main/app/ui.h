@@ -3,13 +3,14 @@
 #include "hal/hal.h"
 #include <string>
 #include "defines.h"
+#include "utils/theme/theme_define.h"
 // Placeholder defines - adjust as needed
 #define NOTE_CIRCLE_RADIUS 60
 #define PITCH_CIRCLE_RADIUS 60
-#define MAX_PITCH_DEVIATION_PX 120          // Max pixels the pitch circle can move left/right
-#define NOTE_TEXT_FONT &fonts::efontEN_16   // Placeholder M5GFX Font
-#define OCTAVE_TEXT_FONT &fonts::efontEN_16 // Placeholder M5GFX Font
-#define TARGET_COLOR TFT_ORANGE             // Use standard M5GFX orange
+#define MAX_PITCH_DEVIATION_PX 120 // Max pixels the pitch circle can move left/right
+#define NOTE_TEXT_FONT FONT_16
+#define OCTAVE_TEXT_FONT FONT_16
+#define TARGET_COLOR TFT_ORANGE
 #define TUNING_COLOR TFT_GREENYELLOW
 #define SUCCESS_COLOR TFT_GREEN
 #define SIGNAL_LOST_HOLD_TIME 1000
@@ -22,7 +23,6 @@ class TunerUI
 private:
     HAL::Hal* _hal;
     LGFX_Sprite* _canvas;
-    LGFX_Sprite* _text;
 
     // Current state
     float _current_freq;
