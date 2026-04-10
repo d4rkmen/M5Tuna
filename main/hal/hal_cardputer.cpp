@@ -9,112 +9,115 @@
  *
  */
 #include "hal_cardputer.h"
-#include "../app/utils/common_define.h"
-#ifdef HAVE_BATTERY
-#include "bat/adc_read.h"
-#endif
+#include "common_define.h"
+#include "display/display.hpp"
 #include "esp_log.h"
 
 static const char* TAG = "HAL";
 
 using namespace HAL;
 
+void HalCardputer::_init_i2c()
+{
+    ESP_LOGI(TAG, "init i2c");
+    _i2c = new I2CMaster();
+}
+
 void HalCardputer::_init_display()
 {
     ESP_LOGI(TAG, "init display");
 
-    // Display
-    _display = new M5GFX;
-    _display->init();
+    // Display (custom LGFX class with ST7789V2 panel config)
+    _display = new LGFX;
 
-    // Canvas
+    // Canvas (full-screen sprite)
     _canvas = new LGFX_Sprite(_display);
     _canvas->createSprite(_display->width(), _display->height());
+
+    _display->setBrightness(200);
 }
 
 void HalCardputer::_init_keyboard()
 {
-    _keyboard = new KEYBOARD::Keyboard;
-    _keyboard->init();
+    ESP_LOGI(TAG, "init keyboard");
+    _keyboard = new KEYBOARD::Keyboard(this);
+    _board_type = _keyboard->boardType();
 }
+
 #ifdef HAVE_MIC
 void HalCardputer::_init_mic()
 {
     ESP_LOGI(TAG, "init mic");
+    _mic = new Mic(this);
 
-    _mic = new m5::Mic_Class;
-
-    // Configs
-    auto cfg = _mic->config();
-    cfg.pin_data_in = 46;
-    cfg.pin_ws = 43;
-    cfg.magnification = 4;
-
-    cfg.task_priority = 15;
-    cfg.i2s_port = i2s_port_t::I2S_NUM_0;
-    _mic->config(cfg);
-
-    // Begin microphone
-    if (!_mic->begin())
+    if (_board_type == BoardType::CARDPUTER_ADV)
     {
-        ESP_LOGE(TAG, "Failed to start microphone!");
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Microphone initialized successfully");
+        auto cfg = _mic->config();
+        cfg.pin_bck = 41;
+        cfg.pin_ws = 43;
+        cfg.pin_data_in = 46;
+        cfg.over_sampling = 1;   // do not change!
+        cfg.magnification = 220; // do not change!
+        _mic->config(cfg);
+        ESP_LOGI(TAG, "CardPuter ADV: mic uses ES8311 I2S codec (bck=41, ws=43, din=46)");
     }
 }
 #endif
+
 #ifdef HAVE_SPEAKER
 void HalCardputer::_init_speaker()
 {
     ESP_LOGI(TAG, "init speaker");
-
-    _speaker = new m5::Speaker_Class;
-
-    auto cfg = _speaker->config();
-    cfg.pin_data_out = 42;
-    cfg.pin_bck = 41;
-    cfg.pin_ws = 43;
-    cfg.i2s_port = i2s_port_t::I2S_NUM_1;
-    // cfg.magnification = 1;
-    _speaker->config(cfg);
+    _speaker = new Speaker(this);
 }
 #endif
-void HalCardputer::_init_button() { _homeButton = new Button(0); }
+
+void HalCardputer::_init_led()
+{
+    ESP_LOGI(TAG, "init led");
+    _led = new LED(RGB_LED_GPIO);
+}
+
 #ifdef HAVE_BATTERY
-void HalCardputer::_init_bat() { adc_read_init(); }
+void HalCardputer::_init_bat()
+{
+    ESP_LOGI(TAG, "init battery");
+    _battery = new Battery();
+}
 #endif
-#ifdef HAVE_SDCARD
-void HalCardputer::_init_sdcard() { _sdcard = new SDCard; }
-#endif
-#ifdef HAVE_USB
-void HalCardputer::_init_usb() { _usb = new USB(this); }
-#endif
+
 #ifdef HAVE_WIFI
 void HalCardputer::_init_wifi() { _wifi = new WiFi(_settings); }
 #endif
+
 void HalCardputer::init()
 {
     ESP_LOGI(TAG, "HAL init");
 
+    // Disable LoRa module NSS to prevent SPI bus conflicts
+    gpio_set_direction((gpio_num_t)LORA_NSS_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level((gpio_num_t)LORA_NSS_PIN, 1);
+
+    _init_i2c();
     _init_display();
     _init_keyboard();
+
+    // ES8311 codec only on Cardputer ADV
+    if (_board_type == BoardType::CARDPUTER_ADV)
+    {
+        _es8311 = new ES8311(this);
+        _es8311->init();
+    }
+
 #ifdef HAVE_SPEAKER
     _init_speaker();
 #endif
 #ifdef HAVE_MIC
     _init_mic();
 #endif
-    _init_button();
+    _init_led();
 #ifdef HAVE_BATTERY
     _init_bat();
-#endif
-#ifdef HAVE_SDCARD
-    _init_sdcard();
-#endif
-#ifdef HAVE_USB
-    _init_usb();
 #endif
 #ifdef HAVE_WIFI
     _init_wifi();
@@ -124,21 +127,20 @@ void HalCardputer::init()
 #ifdef HAVE_BATTERY
 uint8_t HalCardputer::getBatLevel()
 {
-    // https://docs.m5stack.com/zh_CN/core/basic_v2.7
-    double bat_v = static_cast<double>(adc_read_get_value()) * 2 / 1000;
+    float voltage = getBatVoltage();
     uint8_t result = 0;
-    if (bat_v >= 4.12)
+    if (voltage >= 4.12f)
         result = 100;
-    else if (bat_v >= 3.88)
+    else if (voltage >= 3.88f)
         result = 75;
-    else if (bat_v >= 3.61)
+    else if (voltage >= 3.61f)
         result = 50;
-    else if (bat_v >= 3.40)
+    else if (voltage >= 3.40f)
         result = 25;
     else
         result = 0;
     return result;
 }
 
-double HalCardputer::getBatVoltage() { return static_cast<double>(adc_read_get_value()) * 2 / 1000; }
+float HalCardputer::getBatVoltage() { return _battery->get_voltage(); }
 #endif

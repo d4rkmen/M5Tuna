@@ -9,21 +9,17 @@
  *
  */
 #pragma once
-#include "M5GFX.h"
+#include "board.h"
+#include "LovyanGFX.h"
+#include "i2c/i2c_master.h"
 #include "keyboard/keyboard.h"
-#ifdef HAVE_SDCARD
-#include "sdcard/sdcard.h"
-#endif
-#include "button/Button.h"
-#include "M5Unified.h"
-#ifdef HAVE_USB
-#include "usb/usb.h"
-#endif
+#include "speaker/speaker.h"
+#include "mic/mic.h"
+#include "es8311/es8311.h"
+#include "bat/battery.h"
+#include "led/led.h"
 #ifdef HAVE_WIFI
 #include "wifi/wifi.h"
-#endif
-#ifdef HAVE_SETTINGS
-#include "settings/settings.h"
 #endif
 #include <iostream>
 #include <string>
@@ -40,39 +36,25 @@ namespace HAL
         LGFX_Device* _display;
         LGFX_Sprite* _canvas;
 
-#ifdef HAVE_SETTINGS
-        SETTINGS::Settings* _settings;
-#endif
         KEYBOARD::Keyboard* _keyboard;
+        I2CMaster* _i2c;
 #ifdef HAVE_MIC
-        m5::Mic_Class* _mic;
+        Mic* _mic;
 #endif
 #ifdef HAVE_SPEAKER
-        m5::Speaker_Class* _speaker;
+        Speaker* _speaker;
 #endif
-        Button* _homeButton;
-#ifdef HAVE_SDCARD
-        SDCard* _sdcard;
-#endif
-#ifdef HAVE_USB
-        USB* _usb;
-#endif
+        ES8311* _es8311;
+        Battery* _battery;
+        LED* _led;
 #ifdef HAVE_WIFI
         WiFi* _wifi;
 #endif
+        BoardType _board_type;
+
     public:
-        Hal(
-#ifdef HAVE_SETTINGS
-            SETTINGS::Settings* settings
-#endif
-            )
-            : _display(nullptr), _canvas(nullptr)
-#ifdef HAVE_SETTINGS
-              ,
-              _settings(settings)
-#endif
-              ,
-              _keyboard(nullptr)
+        Hal()
+            : _display(nullptr), _canvas(nullptr), _keyboard(nullptr), _i2c(nullptr)
 #ifdef HAVE_MIC
               ,
               _mic(nullptr)
@@ -82,46 +64,35 @@ namespace HAL
               _speaker(nullptr)
 #endif
               ,
-              _homeButton(nullptr)
-#ifdef HAVE_SDCARD
-              ,
-              _sdcard(nullptr)
-#endif
-#ifdef HAVE_USB
-              ,
-              _usb(nullptr)
-#endif
+              _es8311(nullptr), _battery(nullptr), _led(nullptr)
 #ifdef HAVE_WIFI
               ,
               _wifi(nullptr)
 #endif
+              ,
+              _board_type(BoardType::AUTO_DETECT)
         {
-            // constructor
         }
 
         // Getter
         inline LGFX_Device* display() { return _display; }
         inline LGFX_Sprite* canvas() { return _canvas; }
-#ifdef HAVE_SETTINGS
-        inline SETTINGS::Settings* settings() { return _settings; }
-#endif
         inline KEYBOARD::Keyboard* keyboard() { return _keyboard; }
-#ifdef HAVE_SDCARD
-        inline SDCard* sdcard() { return _sdcard; }
-#endif
-#ifdef HAVE_USB
-        inline USB* usb() { return _usb; }
-#endif
-        inline Button* homeButton() { return _homeButton; }
+        inline I2CMaster* i2c() { return _i2c; }
 #ifdef HAVE_MIC
-        inline m5::Mic_Class* mic() { return _mic; }
+        inline Mic* mic() { return _mic; }
 #endif
 #ifdef HAVE_SPEAKER
-        inline m5::Speaker_Class* speaker() { return _speaker; }
+        inline Speaker* speaker() { return _speaker; }
 #endif
 #ifdef HAVE_WIFI
         inline WiFi* wifi() { return _wifi; }
 #endif
+        inline ES8311* es8311() { return _es8311; }
+        inline Battery* bat() { return _battery; }
+        inline LED* led() { return _led; }
+        inline BoardType board_type() const { return _board_type; }
+
         // Canvas
         inline void canvas_update() { _canvas->pushSprite(0, 0); }
 
@@ -139,7 +110,7 @@ namespace HAL
 #endif
 #ifdef HAVE_BATTERY
         virtual uint8_t getBatLevel() { return 100; }
-        virtual double getBatVoltage() { return 4.15; }
+        virtual float getBatVoltage() { return 4.15f; }
 #endif
     };
 } // namespace HAL

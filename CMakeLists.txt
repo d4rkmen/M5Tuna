@@ -6,13 +6,8 @@
 cmake_minimum_required(VERSION 3.16)
 
 
-# add_definitions(-DHAVE_SETTINGS)
-# add_definitions(-DHAVE_USB)
-# add_definitions(-DHAVE_SDCARD)
 add_definitions(-DHAVE_MIC)
 add_definitions(-DHAVE_SPEAKER)
-# add_definitions(-DHAVE_WIFI)
-# add_definitions(-DHAVE_BATTERY)
 file (STRINGS version.txt BUILD_NUMBER)
 set(PROJECT_VER ${BUILD_NUMBER})
 add_compile_options(-Wno-missing-field-initializers)

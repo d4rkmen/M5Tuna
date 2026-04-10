@@ -9,14 +9,18 @@
  *
  */
 #include "hal.h"
-#ifdef HAVE_SETTINGS
-#include "settings/settings.h"
-#endif
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#define RGB_LED_GPIO 21
+#define LORA_NSS_PIN 5
+
 namespace HAL
 {
     class HalCardputer : public Hal
     {
     private:
+        void _init_i2c();
         void _init_display();
         void _init_keyboard();
 #ifdef HAVE_MIC
@@ -25,83 +29,55 @@ namespace HAL
 #ifdef HAVE_SPEAKER
         void _init_speaker();
 #endif
-        void _init_button();
+        void _init_led();
 #ifdef HAVE_BATTERY
         void _init_bat();
-#endif
-#ifdef HAVE_SDCARD
-        void _init_sdcard();
-#endif
-#ifdef HAVE_USB
-        void _init_usb();
 #endif
 #ifdef HAVE_WIFI
         void _init_wifi();
 #endif
 
     public:
-        HalCardputer(
-#ifdef HAVE_SETTINGS
-            SETTINGS::Settings* settings
-#endif
-            )
-            : Hal(
-#ifdef HAVE_SETTINGS
-                  settings
-#endif
-              )
+        HalCardputer() : Hal() {}
+        std::string type() override
         {
+            switch (_board_type)
+            {
+            case HAL::BoardType::CARDPUTER:
+                return "v1.x";
+            case HAL::BoardType::CARDPUTER_ADV:
+                return "ADV";
+            default:
+                return "unknown";
+            }
         }
-        std::string type() override { return "cardputer"; }
         void init() override;
 #ifdef HAVE_SPEAKER
         void playErrorSound() override
         {
-            // _speaker->setVolume(64);
             _speaker->tone(1000, 100);
             _speaker->tone(800, 100);
             _speaker->tone(700, 20);
         }
-        void playKeyboardSound() override
+        void playKeyboardSound() override { _speaker->tone(5000, 20); }
+        void playLastSound() override { _speaker->tone(6000, 20); }
+        void playNextSound() override { _speaker->tone(7000, 20); }
+        void playDeviceConnectedSound() override
         {
-            // _speaker->setVolume(72);
-            _speaker->tone(5000, 20);
-        }
-        void playLastSound() override
-        {
-            // _speaker->setVolume(32);
-            _speaker->tone(6000, 20);
-        }
-        void playNextSound() override
-        {
-            // _speaker->setVolume(64);
-            _speaker->tone(7000, 20);
-        }
-        void playDeviceConnectedSound()
-        {
-            // _speaker->setVolume(64);
             _speaker->tone(1000, 100);
-            vTaskDelay(50);
+            vTaskDelay(pdMS_TO_TICKS(50));
             _speaker->tone(1500, 200);
         }
-        void playDeviceDisconnectedSound()
+        void playDeviceDisconnectedSound() override
         {
-            // _speaker->setVolume(64);
             _speaker->tone(1500, 100);
-            vTaskDelay(50);
+            vTaskDelay(pdMS_TO_TICKS(50));
             _speaker->tone(1000, 200);
         }
 #endif
 #ifdef HAVE_BATTERY
         uint8_t getBatLevel() override;
-        double getBatVoltage() override;
+        float getBatVoltage() override;
 #endif
-#ifdef HAVE_SDCARD
-        void _init_sdcard();
-#endif
-#ifdef HAVE_USB
-        void _init_usb();
-#endif
-    public:
     };
 } // namespace HAL
