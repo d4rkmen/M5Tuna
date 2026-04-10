@@ -4,6 +4,7 @@
 #include <string>
 #include "defines.h"
 #include "utils/theme/theme_define.h"
+#include "utils/anim/hl_text.h"
 // Placeholder defines - adjust as needed
 #define NOTE_CIRCLE_RADIUS 60
 #define PITCH_CIRCLE_RADIUS 60
@@ -47,6 +48,7 @@ private:
 
     uint32_t _strings_rendered_time;
     uint32_t _signal_lost_time;
+    UTILS::HL_TEXT::HLTextContext_t _hint_ctx;
     void _calculate_pitch_offset();
 
 public:
@@ -59,6 +61,4 @@ public:
     void update_mode(TunerMode mode);
     void update_string(uint8_t string);
     bool isInTune() const { return _in_tune; }
-    void animateHintText(const char* text);
-    void animateHintReset();
 };

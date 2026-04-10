@@ -18,9 +18,6 @@
 #include "es8311/es8311.h"
 #include "bat/battery.h"
 #include "led/led.h"
-#ifdef HAVE_WIFI
-#include "wifi/wifi.h"
-#endif
 #include <iostream>
 #include <string>
 
@@ -47,9 +44,6 @@ namespace HAL
         ES8311* _es8311;
         Battery* _battery;
         LED* _led;
-#ifdef HAVE_WIFI
-        WiFi* _wifi;
-#endif
         BoardType _board_type;
 
     public:

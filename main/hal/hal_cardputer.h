@@ -33,9 +33,6 @@ namespace HAL
 #ifdef HAVE_BATTERY
         void _init_bat();
 #endif
-#ifdef HAVE_WIFI
-        void _init_wifi();
-#endif
 
     public:
         HalCardputer() : Hal() {}

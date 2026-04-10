@@ -15,9 +15,6 @@ static const char* mode_names[] = {"AUTO", "GUITAR", "UKULELE", "VIOLIN"};
 
 static const char* control_hint = "[\u2190][\u2192] MODE [\u2191][\u2193] STRING";
 static const char* control_hint_auto = "[\u2190][\u2192] MODE";
-static int hint_char_index = -1;
-static uint32_t hint_update_time = 0;
-static uint32_t hint_timeout = HINT_ANIMATION_DELAY;
 
 TunerUI::TunerUI(HAL::Hal* hal)
     : _hal(hal), _canvas(_hal->canvas()), _current_freq(0.0f), _target_note(""), _target_octave(-1), _target_freq(0.0f),
@@ -25,9 +22,10 @@ TunerUI::TunerUI(HAL::Hal* hal)
       _mode(MODE_GUITAR), _max_strings(6), _cur_string(5), _strings_rendered_time(0), _signal_lost_time(0)
 {
     init();
+    UTILS::HL_TEXT::hl_text_init(&_hint_ctx, _canvas, HINT_ANIMATION_SPEED, HINT_ANIMATION_DELAY);
 }
 
-TunerUI::~TunerUI() {}
+TunerUI::~TunerUI() { UTILS::HL_TEXT::hl_text_free(&_hint_ctx); }
 
 void TunerUI::init()
 {
@@ -100,8 +98,7 @@ void TunerUI::update_mode(TunerMode mode)
     _mode = mode;
     _needs_update = true;
     _max_strings = _get_max_strings(mode);
-    // reset hint animation
-    animateHintReset();
+    UTILS::HL_TEXT::hl_text_reset(&_hint_ctx);
     // highest string is the current string
     update_string(_max_strings - 1);
 }
@@ -172,7 +169,7 @@ bool TunerUI::render()
         if (_in_tune)
         {
             _canvas->fillCircle(pitch_circle_center_x, center_y, PITCH_CIRCLE_RADIUS, SUCCESS_COLOR);
-            _canvas->drawCircle(pitch_circle_center_x, center_y, NOTE_CIRCLE_RADIUS + 3, TFT_WHITE);
+            _canvas->drawCircle(center_x, center_y, NOTE_CIRCLE_RADIUS + 3, TFT_WHITE);
             _canvas->drawCircle(center_x, center_y, NOTE_CIRCLE_RADIUS + 4, TFT_WHITE);
         }
         else
@@ -192,6 +189,33 @@ bool TunerUI::render()
                                   TFT_DARKGRAY);
 
             _canvas->fillCircle(pitch_circle_center_x, center_y, PITCH_CIRCLE_RADIUS - 2, color);
+        }
+    }
+
+    // Waveform visualization: symmetric filled bars + bright contour
+    if (g_waveform_active)
+    {
+        int w = _canvas->width();
+        uint16_t fill_color = TFT_DARKGRAY;
+        uint16_t edge_color = TFT_LIGHTGREY;
+
+        for (int x = 0; x < w; x++)
+        {
+            int idx = x * WAVEFORM_SAMPLES / w;
+            int amp = abs(g_waveform[idx]);
+            if (amp < 1)
+                continue;
+            _canvas->drawFastVLine(x, WAVEFORM_Y - amp, amp * 2, fill_color);
+        }
+
+        for (int x = 1; x < w; x++)
+        {
+            int idx0 = (x - 1) * WAVEFORM_SAMPLES / w;
+            int idx1 = x * WAVEFORM_SAMPLES / w;
+            int a0 = abs(g_waveform[idx0]);
+            int a1 = abs(g_waveform[idx1]);
+            _canvas->drawLine(x - 1, WAVEFORM_Y - a0, x, WAVEFORM_Y - a1, edge_color);
+            _canvas->drawLine(x - 1, WAVEFORM_Y + a0, x, WAVEFORM_Y + a1, edge_color);
         }
     }
 
@@ -241,53 +265,10 @@ bool TunerUI::render()
     _canvas->setTextColor(NOTE_TEXT_COLOR);
     _canvas->drawCenterString(mode_names[_mode], center_x, 10);
 
-    animateHintText(_mode == MODE_AUTO ? control_hint_auto : control_hint);
+    const char* hint = (_mode == MODE_AUTO) ? control_hint_auto : control_hint;
+    int hint_y = _canvas->height() - _hint_ctx.sprite->height();
+    _needs_update |= UTILS::HL_TEXT::hl_text_render(&_hint_ctx, hint, 0, hint_y, TFT_SILVER, TFT_WHITE, BACKGROUND_COLOR);
 
-    _needs_update = false; // Mark as updated
-    return true;           // Canvas was updated
-}
-
-void TunerUI::animateHintReset()
-{
-    hint_update_time = 0;
-    hint_char_index = -1;
-    hint_timeout = HINT_ANIMATION_DELAY;
-}
-
-void TunerUI::animateHintText(const char* text)
-{
-    int y_offset = _canvas->height() - 12;
-
-    _canvas->setFont(FONT_10);
-    _canvas->setTextSize(1);
-    _canvas->setTextColor(TFT_SILVER);
-    _canvas->drawCenterString(text, _canvas->width() / 2, y_offset);
-
-    if (hint_char_index >= 0)
-    {
-        char highlighted_char[2] = {text[hint_char_index], '\0'};
-        _canvas->setTextColor(TFT_WHITE);
-
-        int char_width = _canvas->textWidth(text);
-        int start_x = _canvas->width() / 2 - char_width / 2;
-        int char_pos = hint_char_index * _canvas->textWidth("0");
-        _canvas->drawString(highlighted_char, start_x + char_pos, y_offset);
-    }
-
-    uint32_t now = millis();
-    if ((now - hint_update_time) > hint_timeout)
-    {
-        hint_char_index++;
-        if (text[hint_char_index] != '\0')
-        {
-            hint_timeout = HINT_ANIMATION_SPEED;
-        }
-        else
-        {
-            hint_char_index = -1;
-            hint_timeout = HINT_ANIMATION_DELAY;
-        }
-
-        hint_update_time = now;
-    }
+    _needs_update = false;
+    return true;
 }

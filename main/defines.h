@@ -147,6 +147,13 @@ typedef enum
 
 #define STRINGS_DISPLAY_TIME_MS 2000
 
+#define WAVEFORM_SAMPLES 240
+#define WAVEFORM_HEIGHT 40
+#define WAVEFORM_Y 67
+
+extern volatile int8_t g_waveform[WAVEFORM_SAMPLES];
+extern volatile bool g_waveform_active;
+
 uint8_t _get_max_strings(TunerMode mode);
 
 #endif
