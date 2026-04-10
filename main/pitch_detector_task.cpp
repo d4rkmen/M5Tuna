@@ -69,7 +69,8 @@ MedianFilter medianMovingFilter(3, true);
 extern QueueHandle_t frequencyQueue;
 static TaskHandle_t s_task_handle;
 
-static int16_t adc_buffer[TUNER_FRAME_SIZE];
+#define MIC_REC_BLOCKS 3
+static int16_t adc_buffer[MIC_REC_BLOCKS][TUNER_FRAME_SIZE];
 static std::vector<float> in(TUNER_FRAME_SIZE); // a vector of values to pass into qlib
 
 /// @brief Function to compute the closest note and cent deviation
@@ -126,6 +127,7 @@ inline esp_err_t get_frequency_info(float input_freq, FrequencyInfo* freqInfo)
 void pitch_detector_task(void* pvParameter)
 {
     // Prep ADC
+    // Prep ADC
     HAL::Hal* hal = (HAL::Hal*)pvParameter;
     memset(adc_buffer, 0xcc, sizeof(adc_buffer));
 
@@ -162,9 +164,9 @@ void pitch_detector_task(void* pvParameter)
     cfg.dma_buf_len = TUNER_FRAME_SIZE;
     cfg.over_sampling = 2;
     cfg.noise_filter_level = 0;
+    cfg.over_sampling = 2;
+    cfg.noise_filter_level = 0;
     cfg.sample_rate = TUNER_SAMPLE_RATE;
-    cfg.magnification = 4;
-    cfg.use_adc = false;
     hal->mic()->config(cfg);
     hal->mic()->begin();
 
@@ -181,47 +183,43 @@ void pitch_detector_task(void* pvParameter)
 
     TickType_t ticksBetweenFreqDetection = pdMS_TO_TICKS(1);
 
+    // 3-buffer rotation: while mic_task fills one buffer asynchronously,
+    // we process a previously completed buffer. isRecording()<2 means
+    // the double-buffer queue has room for another record request.
+    int rec_wr = 0;
+    int rec_queued = 0;
+
     while (1)
     {
         while (hal->mic()->isRecording() < 2)
         {
+            hal->mic()->record(adc_buffer[rec_wr], TUNER_FRAME_SIZE);
+            rec_queued++;
+            rec_wr = (rec_wr + 1) % MIC_REC_BLOCKS;
 
-            // recodr the mic
-            hal->mic()->record((int16_t*)adc_buffer, TUNER_FRAME_SIZE);
-            // Get the data out of the ADC Conversion Result.
-            float maxVal = adc_buffer[0];
-            float minVal = adc_buffer[0];
-            // ESP_LOGI(TAG, "Bytes read: %ld", num_of_bytes_read);
+            if (rec_queued < MIC_REC_BLOCKS)
+                continue;
+
+            // The buffer at rec_wr was freed MIC_REC_BLOCKS calls ago — guaranteed complete
+            int16_t* frame = adc_buffer[rec_wr];
+
+            float maxVal = frame[0];
+            float minVal = frame[0];
             for (int i = 0; i < TUNER_FRAME_SIZE; i++)
             {
-                // Do a first pass by just storing the raw values into the float array
-                in[i] = adc_buffer[i];
-
-                // Track the min and max values we see so we can convert to values between -1.0f and +1.0f
+                in[i] = frame[i];
                 if (in[i] > maxVal)
-                {
                     maxVal = in[i];
-                }
                 if (in[i] < minVal)
-                {
                     minVal = in[i];
-                }
             }
 
-            // Bail out if the input does not meet the minimum criteria
             float range = maxVal - minVal;
-            // ESP_LOGI(TAG, "min: %.0f  max: %.0f  range: %.0f", minVal, maxVal, range);
             if (range < TUNER_READING_DIFF_MINIMUM)
             {
-                // ESP_LOGI(TAG, "No frequency detected");
                 xQueueOverwrite(frequencyQueue, &noFreq);
-                // set_current_frequency(-1); // Indicate to the UI that there's no frequency available
-                // oneEUFilter.reset(); // Reset the 1EU filter so the next frequency it detects will be as fast as possible
-                // oneEUFilter2.reset();
                 smoother.reset();
                 movingAverage.reset();
-                // medianMovingFilter.reset();
-                // medianFilter.reset();
                 pd.reset();
 
                 lastSeenNote = NOTE_NONE;
@@ -230,25 +228,18 @@ void pitch_detector_task(void* pvParameter)
                 vTaskDelay(ticksBetweenFreqDetection);
                 continue;
             }
-            // Normalize the values between -1.0 and +1.0 before processing with qlib.
-            // float midVal = range / 2;
+
             float midVal = std::max(abs(minVal), abs(maxVal));
-            // ESP_LOGI(TAG, "min: %.0f  max: %.0f  range: %.0f  mid: %.0f", minVal, maxVal, range, midVal);
             for (auto i = 0; i < TUNER_FRAME_SIZE; i++)
             {
-                // float newPosition = in[i] - midVal - minVal;
                 float normalizedValue = in[i] / midVal;
                 float s = normalizedValue;
-                // s = medianMovingFilter.addValue(s);
 
-                // Signal Conditioner
                 s = sig_cond(s);
 
-                // Send in each value into the pitch detector
                 if (pd(s) == true)
-                { // calculated a frequency
+                {
                     auto f = pd.get_frequency();
-                    // 1EU Filtering
                     TimeStamp time_seconds = (double)esp_timer_get_time() / 1000000;
                     oneEUFilter.setFrequency(f);
                     f = (float)oneEUFilter.filter((double)f, (TimeStamp)time_seconds);
@@ -258,16 +249,9 @@ void pitch_detector_task(void* pvParameter)
 
                     oneEUFilter2.setFrequency(f);
                     f = (float)oneEUFilter2.filter((double)f, time_seconds);
-                    // cutoff overtones
-                    // if (f > 440)
-                    //     continue;
+
                     if (get_frequency_info(f, &freqInfo) == ESP_OK)
                     {
-                        // Only show frequency info if we've seen the
-                        // same target note more than once in a row.
-                        // Doing this seems to help prevent sporadic
-                        // notes from appearing right as you pluck a
-                        // string.
                         ESP_LOGI(TAG, "freq: %.2f, range: %.0f", freqInfo.frequency, range);
 
                         if (lastSeenNote == freqInfo.targetNote)
